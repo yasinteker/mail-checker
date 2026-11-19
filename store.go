@@ -63,7 +63,7 @@ func newStore(ctx context.Context, url string, key []byte) (*store, error) {
 }
 
 func (s *store) migrate(ctx context.Context) error {
-	sql, err := migrations.ReadFile("migrations/001_init.sql")
+	files, err := migrations.ReadDir("migrations")
 	if err != nil {
 		return err
 	}
@@ -75,8 +75,15 @@ func (s *store) migrate(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(7342001)"); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, string(sql)); err != nil {
-		return fmt.Errorf("migration: %w", err)
+	// Dosyalar ada gore sirali gelir; hepsi tekrar calistirilabilir (IF NOT EXISTS).
+	for _, f := range files {
+		sql, err := migrations.ReadFile("migrations/" + f.Name())
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, string(sql)); err != nil {
+			return fmt.Errorf("migration %s: %w", f.Name(), err)
+		}
 	}
 	return tx.Commit(ctx)
 }
@@ -148,9 +155,30 @@ func (s *store) isProcessed(ctx context.Context, id string) (bool, error) {
 	return ok, err
 }
 
-func (s *store) recordProcessed(ctx context.Context, id string, received time.Time, lvl level, notified, markedRead bool) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO processed (id_hash, received_at, level, notified, marked_read)
-		VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id_hash) DO NOTHING`, idHash(id), received, string(lvl), notified, markedRead)
+// record: bir mail icin verilen karar. Ayrintilar (gonderen, konu, gerekce) 7 gun sonra silinir.
+type record struct {
+	ID         string
+	Received   time.Time
+	Level      level
+	Notified   bool
+	MarkedRead bool
+	Sender     string
+	Subject    string
+	Reason     string
+	Source     string
+}
+
+func (s *store) recordProcessed(ctx context.Context, r record) error {
+	_, err := s.db.Exec(ctx, `INSERT INTO processed (id_hash, received_at, level, notified, marked_read, sender, subject, reason, source)
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, '')) ON CONFLICT (id_hash) DO NOTHING`,
+		idHash(r.ID), r.Received, string(r.Level), r.Notified, r.MarkedRead, r.Sender, r.Subject, r.Reason, r.Source)
+	return err
+}
+
+// forgetDetails: 7 gunden eski kararlarin gonderen/konu/gerekce alanlarini bosaltir.
+func (s *store) forgetDetails(ctx context.Context, olderThan time.Duration) error {
+	_, err := s.db.Exec(ctx, `UPDATE processed SET sender = NULL, subject = NULL, reason = NULL
+		WHERE processed_at < $1 AND (sender IS NOT NULL OR subject IS NOT NULL OR reason IS NOT NULL)`, time.Now().Add(-olderThan))
 	return err
 }
 

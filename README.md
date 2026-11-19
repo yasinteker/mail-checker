@@ -7,7 +7,8 @@ Outlook (Microsoft 365) gelen kutusunu izler; her yeni maili kurallar + Claude (
 - **Önemsiz ve kullanıcıyla ilgisiz** → (açıksa) okundu işaretlenir
 - Her gün `DIGEST_HOUR`'da kısa özet bildirimi
 
-Mail içeriği saklanmaz; veritabanında yalnızca mail kimliğinin özeti (sha256), seviye ve tarih tutulur (30 gün).
+Mail gövdesi saklanmaz. Veritabanında mail kimliğinin özeti (sha256), seviye ve tarih 30 gün;
+gönderen, konu, gerekçe cümlesi ve kararın dayanağı (`source`: `yz`, `kural:vip+yz`, `kural:hitap`, …) **7 gün** tutulur.
 Microsoft yenileme anahtarı AES-GCM ile şifreli saklanır.
 
 ## Akış
@@ -52,3 +53,10 @@ Son 20 maili değerlendirip sonucu yazar; bildirim göndermez, hiçbir maili de�
 ## Sağlık
 
 `GET /health` → son başarılı tarama 5 aralıktan eskiyse `503`. Docker `HEALTHCHECK` bunu kullanır.
+
+## Kararları inceleme
+
+```sql
+SELECT processed_at AT TIME ZONE 'Europe/Istanbul' AS zaman, level, notified, marked_read, source, sender, subject, reason
+FROM processed WHERE sender IS NOT NULL ORDER BY processed_at DESC LIMIT 50;
+```

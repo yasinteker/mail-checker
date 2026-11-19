@@ -162,3 +162,18 @@ func TestAddressedUrgent(t *testing.T) {
 		t.Fatal("Turkce hitap taninmadi")
 	}
 }
+
+func TestDecisionSource(t *testing.T) {
+	r := rules{VIP: []string{"patron@firma.com"}, Keywords: []string{"acil"}}
+	m := message{From: recipient{EmailAddress: emailAddress{Address: "patron@firma.com"}}, Subject: "Acil toplantı"}
+	if d := decide(m, me, r, verdict{Level: levelUrgent}, nil); d.Source != "kural:vip,anahtar:acil+yz" {
+		t.Fatalf("kaynak: %q", d.Source)
+	}
+	if d := decide(m, me, r, verdict{Level: levelNone}, nil); d.Source != "kural:vip,anahtar:acil (yz: none)" {
+		t.Fatalf("kaynak: %q", d.Source)
+	}
+	plain := message{From: recipient{EmailAddress: emailAddress{Address: "x@y.com"}}, Subject: "Bilgi"}
+	if d := decide(plain, me, r, verdict{Level: levelNone}, errors.New("zaman")); !strings.Contains(d.Source, "yz hatası") {
+		t.Fatalf("kaynak: %q", d.Source)
+	}
+}

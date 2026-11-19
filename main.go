@@ -304,14 +304,20 @@ func (a *app) poll(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := a.st.forgetDetails(ctx, detailRetention); err != nil {
+		slog.Warn("ayrinti temizligi", "err", err)
+	}
 	a.lastOK.Store(time.Now().Unix())
 	return nil
 }
 
+// detailRetention: gonderen/konu/gerekce bu sure sonunda silinir.
+const detailRetention = 7 * 24 * time.Hour
+
 func (a *app) handle(ctx context.Context, m message) error {
 	from := strings.ToLower(m.From.EmailAddress.Address)
 	if from == a.me.Email || m.IsRead { // kendi maillerim ya da zaten okunmuslar degerlendirilmez
-		return a.st.recordProcessed(ctx, m.ID, m.ReceivedDateTime, levelNone, false, false)
+		return a.st.recordProcessed(ctx, record{ID: m.ID, Received: m.ReceivedDateTime, Level: levelNone, Source: "atlandi"})
 	}
 	v, aiErr := a.ai.classify(ctx, m, ruleHints(m, a.cfg.Rules))
 	a.trackAI(ctx, aiErr)
@@ -345,7 +351,8 @@ func (a *app) handle(ctx context.Context, m message) error {
 	}
 	slog.Info("mail", "level", d.Level, "notified", notified, "marked_read", marked, "would_mark_read", d.MarkRead,
 		"from_domain", domainOf(from), "ai_error", errString(aiErr))
-	return a.st.recordProcessed(ctx, m.ID, m.ReceivedDateTime, d.Level, notified, marked)
+	return a.st.recordProcessed(ctx, record{ID: m.ID, Received: m.ReceivedDateTime, Level: d.Level, Notified: notified,
+		MarkedRead: marked, Sender: from, Subject: m.Subject, Reason: d.Reason, Source: d.Source})
 }
 
 // trackAI: model 30 dakikadan uzun sure yanit vermezse bir kez uyar.

@@ -293,29 +293,48 @@ type decision struct {
 	Level    level
 	MarkRead bool
 	Reason   string
+	Source   string // kararin dayanagi: "yz", "kural:vip+yz", "kural:hitap", "kural:yoksay", ...
 }
 
 // decide combines rules with the model's verdict. aiErr != nil means the model could not be used.
 func decide(m message, me identity, r rules, v verdict, aiErr error) decision {
 	from := m.From.EmailAddress.Address
 	if matchAddr(from, r.Ignore) {
-		return decision{Level: levelNone, MarkRead: true}
+		return decision{Level: levelNone, MarkRead: true, Source: "kural:yoksay"}
 	}
 	if matchAddr(from, r.AddressedUrgent) && addressedToMe(m, me) {
 		reason := v.Reason
 		if aiErr != nil || reason == "" {
 			reason = "Size hitaben gelen yanıt."
 		}
-		return decision{Level: levelUrgent, Reason: reason}
+		return decision{Level: levelUrgent, Reason: reason, Source: "kural:hitap"}
 	}
-	floor, vip := levelNone, matchAddr(from, r.VIP)
-	if vip || r.keywordHit(m.Subject) != "" {
+	floor, vip, kw := levelNone, matchAddr(from, r.VIP), r.keywordHit(m.Subject)
+	var src []string
+	if vip {
+		src = append(src, "vip")
+	}
+	if kw != "" {
+		src = append(src, "anahtar:"+kw)
+	}
+	if len(src) > 0 {
 		floor = levelImportant
 	}
-	if aiErr != nil {
-		return decision{Level: floor, Reason: "Yapay zekâ değerlendiremedi; kurala göre bildiriliyor."}
+	ruleSrc := ""
+	if len(src) > 0 {
+		ruleSrc = "kural:" + strings.Join(src, ",")
 	}
-	d := decision{Level: maxLevel(floor, v.Level), Reason: v.Reason}
+	if aiErr != nil {
+		return decision{Level: floor, Reason: "Yapay zekâ değerlendiremedi; kurala göre bildiriliyor.",
+			Source: strings.TrimPrefix(ruleSrc+" (yz hatası: "+firstLine(aiErr.Error())+")", " ")}
+	}
+	d := decision{Level: maxLevel(floor, v.Level), Reason: v.Reason, Source: "yz"}
+	if ruleSrc != "" {
+		d.Source = ruleSrc + "+yz"
+		if v.Level.rank() < floor.rank() {
+			d.Source = ruleSrc + " (yz: " + string(v.Level) + ")"
+		}
+	}
 	// VIP'ler ve is arkadaslarinin yalnizca kullaniciya yazdigi mailler hicbir zaman otomatik okundu
 	// yapilmaz. (Dis gondericilerden yalnizca kullaniciya gelen bultenler/kampanyalar yapilabilir.)
 	colleagueDirect := len(m.ToRecipients) == 1 && inList(me.Email, m.ToRecipients) &&
