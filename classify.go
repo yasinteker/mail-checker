@@ -45,6 +45,9 @@ type rules struct {
 	VIP      []string // adres ya da alan adi; bu gondericiler en az "onemli"
 	Ignore   []string // bildirim yok, okundu isaretlenebilir
 	Keywords []string // konu satirinda gecerse en az "onemli"
+	// AddressedUrgent: bu gondericilerden gelen mail kullaniciya hitap ediyorsa (Kime alaninda ya da
+	// metin kullanicinin adiyla basliyorsa) yapay zekadan bagimsiz olarak her zaman "acil".
+	AddressedUrgent []string
 }
 
 func splitList(s string) []string {
@@ -83,6 +86,33 @@ func (r rules) keywordHit(subject string) string {
 		}
 	}
 	return ""
+}
+
+// addressedToMe: kullanici Kime (To) alaninda mi, ya da metnin basinda adiyla hitap ediliyor mu
+// ("Dear Yasin Teker", "Yasin Bey", "Merhaba Yasin" ...).
+func addressedToMe(m message, me identity) bool {
+	if inList(me.Email, m.ToRecipients) {
+		return true
+	}
+	head := []rune(lowerTR(m.Body.Content))
+	if len(head) > 400 {
+		head = head[:400]
+	}
+	h := string(head)
+	name := lowerTR(strings.TrimSpace(me.Name))
+	if name == "" {
+		return false
+	}
+	if strings.Contains(h, name) {
+		return true
+	}
+	first := strings.Fields(name)[0]
+	for _, p := range []string{first + " bey", first + " hanım", "dear " + first, "merhaba " + first, "selam " + first, "hi " + first} {
+		if strings.Contains(h, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func inList(addr string, rs []recipient) bool {
@@ -271,6 +301,13 @@ func decide(m message, me identity, r rules, v verdict, aiErr error) decision {
 	if matchAddr(from, r.Ignore) {
 		return decision{Level: levelNone, MarkRead: true}
 	}
+	if matchAddr(from, r.AddressedUrgent) && addressedToMe(m, me) {
+		reason := v.Reason
+		if aiErr != nil || reason == "" {
+			reason = "Size hitaben gelen yanıt."
+		}
+		return decision{Level: levelUrgent, Reason: reason}
+	}
 	floor, vip := levelNone, matchAddr(from, r.VIP)
 	if vip || r.keywordHit(m.Subject) != "" {
 		floor = levelImportant
@@ -294,6 +331,9 @@ func ruleHints(m message, r rules) []string {
 	}
 	if k := r.keywordHit(m.Subject); k != "" {
 		h = append(h, fmt.Sprintf("konu satırında %q geçiyor", k))
+	}
+	if matchAddr(m.From.EmailAddress.Address, r.AddressedUrgent) {
+		h = append(h, "gönderen kullanıcının yakından takip ettiği bir destek/ticket sistemi")
 	}
 	return h
 }

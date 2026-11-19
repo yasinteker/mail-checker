@@ -138,3 +138,27 @@ func TestBuildPromptMarksUser(t *testing.T) {
 		}
 	}
 }
+
+func TestAddressedUrgent(t *testing.T) {
+	me := identity{Name: "Yasin Teker", Email: "yasin.teker@firma.com"}
+	r := rules{AddressedUrgent: []string{"support@bestcloudfor.me"}}
+	m := message{From: recipient{EmailAddress: emailAddress{Address: "support@bestcloudfor.me"}},
+		ToRecipients: []recipient{rcpt("support@firma.com")}, Subject: "Re: test ortamı [#610815]"}
+	m.Body.Content = "-- reply above this line --\n\nDear Yasin Teker,\nSelamlar, ortam hazır."
+	if d := decide(m, me, r, verdict{Level: levelNone, Relevant: false}, nil); d.Level != levelUrgent || d.MarkRead {
+		t.Fatalf("bana hitaben ticket acil olmali: %+v", d)
+	}
+	if d := decide(m, me, r, verdict{}, errors.New("x")); d.Level != levelUrgent {
+		t.Fatal("model hatasinda da acil olmali")
+	}
+	other := m
+	other.Body.Content = "-- reply above this line --\n\nDear Ali Bulut,\nTalep kapatıldı."
+	if d := decide(other, me, r, verdict{Level: levelNone}, nil); d.Level == levelUrgent {
+		t.Fatal("baskasina hitaben ticket acil olmamali")
+	}
+	tr := other
+	tr.Body.Content = "YASİN BEY merhaba, dönüşünüzü bekliyoruz"
+	if !addressedToMe(tr, me) {
+		t.Fatal("Turkce hitap taninmadi")
+	}
+}

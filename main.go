@@ -60,9 +60,10 @@ func loadConfig() (config, error) {
 		DryRun:       os.Getenv("DRY_RUN") == "true",
 		BootstrapRT:  os.Getenv("MS_BOOTSTRAP_REFRESH_TOKEN"),
 		Rules: rules{
-			VIP:      splitList(os.Getenv("VIP_SENDERS")),
-			Ignore:   splitList(os.Getenv("IGNORE_SENDERS")),
-			Keywords: splitList(envOr("URGENT_KEYWORDS", defaultKeywords)),
+			VIP:             splitList(os.Getenv("VIP_SENDERS")),
+			Ignore:          splitList(os.Getenv("IGNORE_SENDERS")),
+			Keywords:        splitList(envOr("URGENT_KEYWORDS", defaultKeywords)),
+			AddressedUrgent: splitList(os.Getenv("ADDRESSED_URGENT_SENDERS")),
 		},
 	}
 	var missing []string
@@ -165,7 +166,7 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("basladi", "version", version, "interval", cfg.Interval.String(), "model", cfg.Model,
-		"mark_read", cfg.MarkRead, "dry_run", cfg.DryRun, "vip", len(cfg.Rules.VIP), "ignore", len(cfg.Rules.Ignore))
+		"mark_read", cfg.MarkRead, "dry_run", cfg.DryRun, "vip", len(cfg.Rules.VIP), "ignore", len(cfg.Rules.Ignore), "addressed_urgent", len(cfg.Rules.AddressedUrgent))
 
 	a.run(ctx)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

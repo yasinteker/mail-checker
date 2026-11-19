@@ -14,7 +14,7 @@ Microsoft yenileme anahtarı AES-GCM ile şifreli saklanır.
 
 1. Dakikada bir (`POLL_INTERVAL`) Graph API'den son taramadan beri gelen mailleri çeker (10 dk örtüşme, kimlikle tekilleştirme).
 2. Zaten okunmuş mailler ve kullanıcının kendi mailleri değerlendirilmez.
-3. Kurallar: `VIP_SENDERS` ve konu satırında `URGENT_KEYWORDS` → en az "önemli". `IGNORE_SENDERS` → bildirim yok.
+3. Kurallar: `ADDRESSED_URGENT_SENDERS` + kullanıcıya hitap → her zaman acil. `VIP_SENDERS` ve konu satırında `URGENT_KEYWORDS` → en az "önemli". `IGNORE_SENDERS` → bildirim yok.
 4. Claude seviyeyi (none/important/urgent), ilgiyi ve tek cümlelik nedeni döndürür. Model yanıt vermezse yalnızca kurallar uygulanır.
 5. Okundu işaretleme yalnızca: seviye none + model "ilgisiz" dedi + VIP değil + iş arkadaşının yalnızca kullanıcıya yazdığı bir mail değil.
 
@@ -33,6 +33,7 @@ Microsoft girişi düşerse servis cihaz kodunu telefona bildirim olarak gönder
 | `MARK_READ_IRRELEVANT` | `false` | `true`: ilgisiz önemsiz mailleri okundu yap (Mail.ReadWrite izni ister) |
 | `VIP_SENDERS` | | Virgülle: `ad@firma.com` ya da `musteri.com` (alt alan adları dahil) |
 | `IGNORE_SENDERS` | | Aynı biçim; bildirim yok, okundu yapılabilir |
+| `ADDRESSED_URGENT_SENDERS` | | Aynı biçim; bu göndericilerin kullanıcıya hitaben (Kime alanında ya da "Dear Ad Soyad", "Ad Bey" …) mailleri her zaman acil |
 | `URGENT_KEYWORDS` | acil, kesinti, çöktü, … | Konu satırı anahtar kelimeleri |
 | `POLL_INTERVAL` | `60s` | En az 15s |
 | `DIGEST_HOUR` | `18` | Günlük özet saati, `-1` kapalı |
