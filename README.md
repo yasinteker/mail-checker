@@ -34,7 +34,7 @@ Microsoft girişi düşerse servis cihaz kodunu telefona bildirim olarak gönder
 | `TOKEN_ENC_KEY` | — | 32 bayt, base64 (`openssl rand -base64 32`) |
 | `MARK_READ_IRRELEVANT` | `false` | `true`: ilgisiz önemsiz mailleri okundu yap (Mail.ReadWrite izni ister) |
 | `VIP_SENDERS` | | Virgülle: `ad@firma.com` ya da `musteri.com` (alt alan adları dahil) |
-| `IGNORE_SENDERS` | | Aynı biçim; bildirim yok, okundu yapılabilir |
+| `IGNORE_SENDERS` | | Aynı biçim; yapay zekaya sorulmaz, bildirim yok, okundu yapılabilir (otomatik rapor göndericileri) |
 | `ADDRESSED_URGENT_SENDERS` | | Aynı biçim; bu göndericilerin kullanıcıya hitaben (Kime alanında ya da "Dear Ad Soyad", "Ad Bey" …) mailleri her zaman acil |
 | `URGENT_KEYWORDS` | acil, kesinti, çöktü, … | Konu satırı anahtar kelimeleri |
 | `POLL_INTERVAL` | `60s` | En az 15s |

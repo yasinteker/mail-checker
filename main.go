@@ -347,8 +347,12 @@ func (a *app) handle(ctx context.Context, m message) error {
 	if from == a.me.Email || m.IsRead { // kendi maillerim ya da zaten okunmuslar degerlendirilmez
 		return a.st.recordProcessed(ctx, record{ID: m.ID, Received: m.ReceivedDateTime, Level: levelNone, Source: "atlandi"})
 	}
-	v, aiErr := a.ai.classify(ctx, m, ruleHints(m, a.cfg.Rules))
-	a.trackAI(ctx, aiErr)
+	var v verdict
+	var aiErr error
+	if !matchAddr(from, a.cfg.Rules.Ignore) { // yoksayilan gondericiler icin yapay zekaya sorulmaz
+		v, aiErr = a.ai.classify(ctx, m, ruleHints(m, a.cfg.Rules))
+		a.trackAI(ctx, aiErr)
+	}
 	d := decide(m, a.me, a.cfg.Rules, v, aiErr)
 
 	notified := false
