@@ -247,6 +247,7 @@ type recipient struct {
 
 type message struct {
 	ID               string      `json:"id"`
+	ParentFolderID   string      `json:"parentFolderId"`
 	Subject          string      `json:"subject"`
 	From             recipient   `json:"from"`
 	ToRecipients     []recipient `json:"toRecipients"`
@@ -278,18 +279,38 @@ func (g *graph) me(ctx context.Context) (identity, error) {
 	return identity{Name: r.DisplayName, Email: strings.ToLower(email)}, nil
 }
 
-// inboxSince lists inbox messages received at or after since, oldest first, bodies as plain text.
-func (g *graph) inboxSince(ctx context.Context, since time.Time) ([]message, error) {
+// excludedFolders: izlenmeyen klasorler (gonderilmis, taslak, silinmis, gereksiz, giden).
+func (g *graph) excludedFolders(ctx context.Context) (map[string]bool, error) {
+	out := map[string]bool{}
+	for _, wk := range []string{"sentitems", "drafts", "deleteditems", "junkemail", "outbox"} {
+		var r struct {
+			ID string `json:"id"`
+		}
+		if err := g.do(ctx, http.MethodGet, "/me/mailFolders/"+wk+"?$select=id", nil, &r, nil); err != nil {
+			var ge *graphError
+			if errors.As(err, &ge) && ge.Status == http.StatusNotFound {
+				continue
+			}
+			return nil, err
+		}
+		out[r.ID] = true
+	}
+	return out, nil
+}
+
+// messagesSince lists messages in all folders received at or after since, oldest first, bodies as
+// plain text. Callers drop messages whose ParentFolderID is excluded.
+func (g *graph) messagesSince(ctx context.Context, since time.Time) ([]message, error) {
 	q := url.Values{
 		"$filter":  {"receivedDateTime ge " + since.UTC().Format(time.RFC3339)},
 		"$orderby": {"receivedDateTime asc"},
 		"$top":     {"50"},
-		"$select":  {"id,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,isRead,webLink,body"},
+		"$select":  {"id,parentFolderId,subject,from,toRecipients,ccRecipients,receivedDateTime,importance,isRead,webLink,body"},
 	}
-	next := "/me/mailFolders/inbox/messages?" + q.Encode()
+	next := "/me/messages?" + q.Encode()
 	hdr := map[string]string{"Prefer": `outlook.body-content-type="text"`}
 	var all []message
-	for page := 0; next != "" && page < 20; page++ {
+	for page := 0; next != "" && page < 40; page++ {
 		var r struct {
 			Value    []message `json:"value"`
 			NextLink string    `json:"@odata.nextLink"`

@@ -1,6 +1,6 @@
 # mail-checker
 
-Outlook (Microsoft 365) gelen kutusunu izler; her yeni maili kurallar + Claude (Haiku) ile değerlendirir:
+Outlook (Microsoft 365) posta kutusunun tüm klasörlerini (gönderilmiş, taslak, silinmiş, gereksiz ve giden hariç) izler; her yeni maili kurallar + Claude (Haiku) ile değerlendirir:
 
 - **Acil** → telefona yüksek öncelikli bildirim (`fcm-bridge`, severity `critical`)
 - **Önemli** → normal bildirim (severity `info`)
@@ -14,7 +14,8 @@ Microsoft yenileme anahtarı AES-GCM ile şifreli saklanır.
 ## Akış
 
 1. Dakikada bir (`POLL_INTERVAL`) Graph API'den son taramadan beri gelen mailleri çeker (10 dk örtüşme, kimlikle tekilleştirme).
-2. Zaten okunmuş mailler ve kullanıcının kendi mailleri değerlendirilmez.
+2. Aynı göndericiden aynı konuyla (rakamlar yok sayılarak) gelen tekrarlar için saatte en fazla bir bildirim gider.
+3. Zaten okunmuş mailler ve kullanıcının kendi mailleri değerlendirilmez.
 3. Kurallar: `ADDRESSED_URGENT_SENDERS` + kullanıcıya hitap → her zaman acil. `VIP_SENDERS` ve konu satırında `URGENT_KEYWORDS` → en az "önemli". `IGNORE_SENDERS` → bildirim yok.
 4. Claude seviyeyi (none/important/urgent), ilgiyi ve tek cümlelik nedeni döndürür. Model yanıt vermezse yalnızca kurallar uygulanır.
 5. Okundu işaretleme yalnızca: seviye none + model "ilgisiz" dedi + VIP değil + iş arkadaşının yalnızca kullanıcıya yazdığı bir mail değil.

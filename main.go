@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -119,6 +120,8 @@ type app struct {
 	waiting atomic.Bool  // kullanicinin girisi bekleniyor (saglik ucu "ok" doner)
 
 	canMarkRead   bool
+	excluded      map[string]bool      // izlenmeyen klasor kimlikleri
+	lastNotified  map[string]time.Time // tekrar eden bildirim bastirma: gonderen|konu -> son bildirim
 	aiFailingFrom time.Time
 	aiAlerted     bool
 }
@@ -220,6 +223,16 @@ func (a *app) bootstrap(ctx context.Context) error {
 		}
 	}
 	a.ai = newClassifier(a.cfg.AnthropicKey, a.cfg.Model, a.me)
+	a.lastNotified = map[string]time.Time{}
+	for {
+		if a.excluded, err = a.g.excludedFolders(ctx); err == nil {
+			break
+		}
+		slog.Warn("klasorler alinamadi, tekrar denenecek", "err", err)
+		if !sleepCtx(ctx, 30*time.Second) {
+			return ctx.Err()
+		}
+	}
 	a.canMarkRead = a.cfg.MarkRead && strings.Contains(strings.ToLower(a.g.grantedScope(ctx)), "mail.readwrite")
 	if a.cfg.MarkRead && !a.canMarkRead {
 		slog.Warn("okundu isaretleme acik ama Mail.ReadWrite izni yok; yeniden giris istenecek")
@@ -277,7 +290,7 @@ func (a *app) poll(ctx context.Context) error {
 	} else if since, err = time.Parse(time.RFC3339, wm); err != nil {
 		return err
 	}
-	msgs, err := a.g.inboxSince(ctx, since.Add(-overlap))
+	msgs, err := a.g.messagesSince(ctx, since.Add(-overlap))
 	if err != nil {
 		return err
 	}
@@ -285,6 +298,12 @@ func (a *app) poll(ctx context.Context) error {
 	for _, m := range msgs {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if m.ReceivedDateTime.After(newest) {
+			newest = m.ReceivedDateTime
+		}
+		if a.excluded[m.ParentFolderID] {
+			continue
 		}
 		done, err := a.st.isProcessed(ctx, m.ID)
 		if err != nil {
@@ -294,9 +313,6 @@ func (a *app) poll(ctx context.Context) error {
 			if err := a.handle(ctx, m); err != nil {
 				return err // isaretlenmeden birakilir, sonraki taramada tekrar denenir
 			}
-		}
-		if m.ReceivedDateTime.After(newest) {
-			newest = m.ReceivedDateTime
 		}
 	}
 	if newest.After(since) {
@@ -309,6 +325,18 @@ func (a *app) poll(ctx context.Context) error {
 	}
 	a.lastOK.Store(time.Now().Unix())
 	return nil
+}
+
+// repeatWindow: ayni gonderenden ayni (rakamlardan arindirilmis) konuyla gelen mailler icin bu sure
+// icinde yalnizca bir bildirim gider. Siklikla tekrarlanan alarm maillerinde bildirim yagmurunu onler.
+const repeatWindow = time.Hour
+
+var digits = regexp.MustCompile(`[0-9]+`)
+var replyPrefix = regexp.MustCompile(`(?i)^\s*((re|fw|fwd|ynt|ilt|yanıt|ilet)\s*:\s*)+`)
+
+func repeatKey(from, subject string) string {
+	s := replyPrefix.ReplaceAllString(lowerTR(subject), "")
+	return strings.ToLower(from) + "|" + strings.TrimSpace(digits.ReplaceAllString(s, "#"))
 }
 
 // detailRetention: gonderen/konu/gerekce bu sure sonunda silinir.
@@ -324,7 +352,12 @@ func (a *app) handle(ctx context.Context, m message) error {
 	d := decide(m, a.me, a.cfg.Rules, v, aiErr)
 
 	notified := false
+	key := repeatKey(from, m.Subject)
 	if d.Level != levelNone && !m.IsRead {
+		if last, ok := a.lastNotified[key]; ok && time.Since(last) < repeatWindow {
+			d.Source += " (tekrar: bildirim bastırıldı)"
+			goto after
+		}
 		sev, label := "info", "Önemli"
 		if d.Level == levelUrgent {
 			sev, label = "critical", "Acil"
@@ -336,7 +369,11 @@ func (a *app) handle(ctx context.Context, m message) error {
 		}
 		notified = a.notify.send(ctx, sev, fmt.Sprintf("%s mail: %s", label, sender), body,
 			map[string]string{"url": m.WebLink, "kind": "mail"})
+		if notified {
+			a.lastNotified[key] = time.Now()
+		}
 	}
+after:
 	marked := false
 	if d.MarkRead && a.canMarkRead && !m.IsRead && !a.cfg.DryRun {
 		if err := a.g.markRead(ctx, m.ID); err != nil {

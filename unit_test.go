@@ -177,3 +177,14 @@ func TestDecisionSource(t *testing.T) {
 		t.Fatalf("kaynak: %q", d.Source)
 	}
 }
+
+func TestRepeatKey(t *testing.T) {
+	a := repeatKey("Alert@x.com", "Failed Payment Requests - 2026-11-19 10:05")
+	b := repeatKey("alert@x.com", "RE: Failed Payment Requests - 2026-11-19 11:45")
+	if a != b {
+		t.Fatalf("%q != %q", a, b)
+	}
+	if repeatKey("alert@x.com", "Başka konu") == a {
+		t.Fatal("farkli konular ayni anahtar")
+	}
+}
