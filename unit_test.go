@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func rcpt(addr string) recipient { return recipient{EmailAddress: emailAddress{Address: addr}} }
@@ -186,5 +187,24 @@ func TestRepeatKey(t *testing.T) {
 	}
 	if repeatKey("alert@x.com", "Başka konu") == a {
 		t.Fatal("farkli konular ayni anahtar")
+	}
+}
+
+func TestReceivedLine(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Istanbul")
+	now := time.Date(2026, 11, 20, 6, 13, 0, 0, time.UTC) // 09:13 TR
+	cases := []struct {
+		rec  time.Time
+		want string
+	}{
+		{now.Add(-time.Minute), ""},
+		{time.Date(2026, 11, 20, 3, 40, 0, 0, time.UTC), "Geliş: 06:40"},
+		{time.Date(2026, 11, 19, 13, 50, 0, 0, time.UTC), "Geliş: 19.11 16:50"},
+		{time.Time{}, ""},
+	}
+	for _, c := range cases {
+		if got := receivedLine(c.rec, now, loc); got != c.want {
+			t.Errorf("receivedLine(%v) = %q, want %q", c.rec, got, c.want)
+		}
 	}
 }

@@ -339,6 +339,21 @@ func repeatKey(from, subject string) string {
 	return strings.ToLower(from) + "|" + strings.TrimSpace(digits.ReplaceAllString(s, "#"))
 }
 
+// lateThreshold: mail bundan daha gec bildiriliyorsa (or. sunucu kapaliyken gelen birikmis mailler)
+// govdeye gercek gelis saati yazilir; telefon bildirimin ulastigi ani gosterdigi icin yaniltmasin.
+const lateThreshold = 10 * time.Minute
+
+func receivedLine(received, now time.Time, loc *time.Location) string {
+	if received.IsZero() || now.Sub(received) < lateThreshold {
+		return ""
+	}
+	r, n := received.In(loc), now.In(loc)
+	if r.Year() == n.Year() && r.YearDay() == n.YearDay() {
+		return "Geliş: " + r.Format("15:04")
+	}
+	return "Geliş: " + r.Format("02.01 15:04")
+}
+
 // detailRetention: gonderen/konu/gerekce bu sure sonunda silinir.
 const detailRetention = 7 * 24 * time.Hour
 
@@ -371,7 +386,10 @@ func (a *app) handle(ctx context.Context, m message) error {
 		if d.Reason != "" {
 			body += "\n" + d.Reason
 		}
-		notified = a.notify.send(ctx, sev, fmt.Sprintf("%s mail: %s", label, sender), body,
+		if line := receivedLine(m.ReceivedDateTime, time.Now(), a.cfg.Location); line != "" {
+			body += "\n" + line
+		}
+		notified = a.notify.sendAt(ctx, m.ReceivedDateTime, sev, fmt.Sprintf("%s mail: %s", label, sender), body,
 			map[string]string{"url": m.WebLink, "kind": "mail"})
 		if notified {
 			a.lastNotified[key] = time.Now()
@@ -465,11 +483,20 @@ type notifier struct {
 }
 
 func (n *notifier) send(ctx context.Context, severity, title, body string, meta map[string]string) bool {
+	return n.sendAt(ctx, time.Time{}, severity, title, body, meta)
+}
+
+// sendAt: at sifir degilse bildirimin olay zamani olarak gonderilir (fcm-bridge "timestamp");
+// aksi halde fcm-bridge gonderim anini kullanir.
+func (n *notifier) sendAt(ctx context.Context, at time.Time, severity, title, body string, meta map[string]string) bool {
 	if n.dry {
 		slog.Info("DRY_RUN bildirim", "severity", severity)
 		return true
 	}
 	payload := map[string]any{"source": "mail-checker", "severity": severity, "title": title, "body": body}
+	if !at.IsZero() {
+		payload["timestamp"] = at.UTC().Format(time.RFC3339)
+	}
 	if len(meta) > 0 {
 		payload["meta"] = meta
 	}
