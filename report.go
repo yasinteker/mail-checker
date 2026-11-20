@@ -91,8 +91,16 @@ func (r rules) vendorReportDecision(m message) decision {
 		}
 		total[row.Error] += row.Count
 	}
+	// Tek tuk bilinmeyen hatalar (1-5 adet) olagan; sistemsel bir sorun yuzlerce satir uretir.
+	var big []string
+	for _, e := range order {
+		if total[e] >= r.ReportMin {
+			big = append(big, e)
+		}
+	}
+	order = big
 	if len(order) == 0 {
-		return decision{Level: levelNone, MarkRead: true, Source: "kural:rapor (yalnızca veri hataları)"}
+		return decision{Level: levelNone, MarkRead: true, Source: "kural:rapor (eşik altı)"}
 	}
 	var parts []string
 	for i, e := range order {

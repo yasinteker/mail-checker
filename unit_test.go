@@ -210,7 +210,7 @@ func TestReceivedLine(t *testing.T) {
 }
 
 func TestVendorReport(t *testing.T) {
-	r := rules{ReportSubject: defaultVendorReportSubject, ReportKnown: splitList(defaultVendorReportKnown),
+	r := rules{ReportSubject: defaultVendorReportSubject, ReportKnown: splitList(defaultVendorReportKnown), ReportMin: 50,
 		Ignore: splitList("clmail.commercelab.com.tr")}
 	mk := func(body string) message {
 		m := message{Subject: "Vendor Hata Raporu"}
@@ -233,9 +233,13 @@ func TestVendorReport(t *testing.T) {
 	if d.Level != levelUrgent || d.MarkRead || !strings.Contains(d.Reason, "(203)") || !strings.Contains(d.Reason, "lock (6798)") {
 		t.Errorf("sistemsel: %+v", d)
 	}
-	spaced := "Username        ErrorMessage    HataAdedi\ngencpa  Ürün Tipi hatali / Ürün bulunamadi      2267\nX  Deadlock found      3\n"
+	spaced := "Username        ErrorMessage    HataAdedi\ngencpa  Ürün Tipi hatali / Ürün bulunamadi      2267\nX  Deadlock found      73\n"
 	if d := decide(mk(spaced), me, r, verdict{}, nil); d.Level != levelUrgent {
 		t.Errorf("bosluklu bicim: %+v", d)
+	}
+	few := clean + "x\tTimeout exceeded when trying to acquire the lock\t3\r\n"
+	if d := decide(mk(few), me, r, verdict{}, nil); d.Level != levelNone || !d.MarkRead {
+		t.Errorf("esik alti: %+v", d)
 	}
 	if d := decide(mk("Merhaba, rapor ektedir."), me, r, verdict{}, nil); d.Level != levelImportant {
 		t.Errorf("okunamayan: %+v", d)

@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -94,6 +95,9 @@ func loadConfig() (config, error) {
 	}
 	if c.Location, err = time.LoadLocation(envOr("TZ_NAME", "Europe/Istanbul")); err != nil {
 		return c, err
+	}
+	if c.Rules.ReportMin, err = strconv.Atoi(envOr("VENDOR_REPORT_MIN", "50")); err != nil || c.Rules.ReportMin < 1 {
+		return c, errors.New("VENDOR_REPORT_MIN pozitif tamsayi olmali")
 	}
 	if c.StreakMin, err = time.ParseDuration(envOr("STREAK_MIN", "10m")); err != nil {
 		return c, fmt.Errorf("STREAK_MIN: %w", err)

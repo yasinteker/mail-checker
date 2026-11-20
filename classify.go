@@ -51,6 +51,7 @@ type rules struct {
 	// ReportSubject/ReportKnown: vendor hata raporu kurali (report.go).
 	ReportSubject string
 	ReportKnown   []string
+	ReportMin     int // bilinmeyen bir hata turu en az bu kadar adetse sistemsel sayilir
 	// Mute: bildirim yok, yapay zekaya sorulmaz, okundu da isaretlenmez.
 	Mute []string
 	// StreakSubjects: konu bunlardan birini iceriyorsa sureklilik kurali uygulanir (streak.go).
