@@ -300,3 +300,35 @@ func TestStreak(t *testing.T) {
 		t.Error("tenantOf skechers")
 	}
 }
+
+func TestPromote(t *testing.T) {
+	r := rules{Ignore: splitList("clmail.commercelab.com.tr,alerts.hebiar.com"),
+		PromoteUrgent: splitList(defaultPromoteUrgent), PromoteImportant: splitList(defaultPromoteImportant)}
+	mk := func(from, subj, body string) message {
+		var m message
+		m.From.EmailAddress.Address = from
+		m.Subject = subj
+		m.Body.Content = body
+		return m
+	}
+	cases := []struct {
+		m    message
+		want level
+		src  string
+	}{
+		{mk("management@clmail.commercelab.com.tr", "[ALERT] Site Sağlık: 1 yeni kritik sorun — Skechers: MASTERPASS POS başarısı çöktü", "⚠ 1 yeni kritik sorun tespit edildi\nx"), levelUrgent, "kural:istisna"},
+		{mk("management@clmail.commercelab.com.tr", "[ALERT][HATIRLATMA] Site Sağlık: süren kritik sorun — Madame Coco", "b"), levelImportant, "kural:istisna"},
+		{mk("management@clmail.commercelab.com.tr", "[ÇÖZÜLDÜ] Site Sağlık: 1 sorun düzeldi — Klaud", "b"), levelImportant, "kural:istisna"},
+		{mk("noreply@alerts.hebiar.com", "Functional Test Günlük Raporu", "Toplam Çalışan 1333 Başarısız 0 Bugün başarısız test yok."), levelNone, "kural:yoksay"},
+		{mk("noreply@alerts.hebiar.com", "Functional Test Günlük Raporu", "Toplam Çalışan 1681 Başarısız 1 Hunterboots TIMEOUT"), levelImportant, "kural:istisna"},
+		{mk("info.asics@clmail.commercelab.com.tr", "SaleChannelMismatchedControlJob Hatası Hakkında", "b"), levelImportant, "kural:istisna"},
+		{mk("management@clmail.commercelab.com.tr", "[KRİTİK] Site Sağlık Raporu — 1 kritik, 4 uyarı", "b"), levelNone, "kural:yoksay"},
+		{mk("management@clmail.commercelab.com.tr", "Alert", "ConsumerTryAlert"), levelNone, "kural:yoksay"},
+	}
+	for i, c := range cases {
+		d := decide(c.m, identity{}, r, verdict{}, nil)
+		if d.Level != c.want || d.Source != c.src {
+			t.Errorf("%d %q: got %s/%s want %s/%s", i, c.m.Subject, d.Level, d.Source, c.want, c.src)
+		}
+	}
+}

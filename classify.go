@@ -59,6 +59,47 @@ type rules struct {
 	// AssignSenders/AssignSubjects: is takip sisteminden "size atandi" mailleri her zaman "onemli".
 	AssignSenders  []string
 	AssignSubjects []string
+	// PromoteUrgent/PromoteImportant: yok sayilan (Ignore) gondericilerden gelse bile konusu bu
+	// kaliplardan birini iceren mailler bildirilir. "konu|!metin" bicimi: govde "metin"i iceriyorsa
+	// kural uygulanmaz (or. "Functional Test Günlük Raporu|!başarısız test yok").
+	PromoteUrgent    []string
+	PromoteImportant []string
+}
+
+const (
+	defaultPromoteUrgent    = "[ALERT] Site Sağlık"
+	defaultPromoteImportant = "[ALERT][HATIRLATMA],[ÇÖZÜLDÜ] Site Sağlık," +
+		"Functional Test Günlük Raporu|!başarısız test yok,SaleChannelMismatchedControlJob"
+)
+
+// promoted: yok sayilan gondericinin mailinin istisna listesine takilip takilmadigi.
+func (r rules) promoted(m message) (level, bool) {
+	if !matchAddr(m.From.EmailAddress.Address, r.Ignore) {
+		return levelNone, false
+	}
+	// splitList ToLower kullanir ("HATIRLATMA" -> "hatirlatma"); iki tarafi da ı->i katlayarak karsilastir.
+	fold := func(x string) string { return strings.ReplaceAll(lowerTR(x), "ı", "i") }
+	s, body := fold(m.Subject), fold(m.Body.Content)
+	hit := func(list []string) bool {
+		for _, e := range list {
+			subj, excl, _ := strings.Cut(e, "|!")
+			if subj = strings.TrimSpace(subj); subj == "" || !strings.Contains(s, fold(subj)) {
+				continue
+			}
+			if excl = strings.TrimSpace(excl); excl != "" && strings.Contains(body, fold(excl)) {
+				continue
+			}
+			return true
+		}
+		return false
+	}
+	switch {
+	case hit(r.PromoteUrgent):
+		return levelUrgent, true
+	case hit(r.PromoteImportant):
+		return levelImportant, true
+	}
+	return levelNone, false
 }
 
 func (r rules) isAssignment(m message) bool {
@@ -329,6 +370,10 @@ func decide(m message, me identity, r rules, v verdict, aiErr error) decision {
 	}
 	if matchAddr(from, r.Mute) {
 		return decision{Level: levelNone, Source: "kural:sessiz"}
+	}
+	if lv, ok := r.promoted(m); ok {
+		return decision{Level: lv, Source: "kural:istisna",
+			Reason: "Otomatik alarm: " + truncateRunes(firstLine(strings.TrimSpace(m.Body.Content)), 150)}
 	}
 	if matchAddr(from, r.Ignore) {
 		return decision{Level: levelNone, MarkRead: true, Source: "kural:yoksay"}

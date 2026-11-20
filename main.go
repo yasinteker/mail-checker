@@ -64,16 +64,18 @@ func loadConfig() (config, error) {
 		DryRun:       os.Getenv("DRY_RUN") == "true",
 		BootstrapRT:  os.Getenv("MS_BOOTSTRAP_REFRESH_TOKEN"),
 		Rules: rules{
-			VIP:             splitList(os.Getenv("VIP_SENDERS")),
-			Ignore:          splitList(os.Getenv("IGNORE_SENDERS")),
-			Keywords:        splitList(envOr("URGENT_KEYWORDS", defaultKeywords)),
-			AddressedUrgent: splitList(os.Getenv("ADDRESSED_URGENT_SENDERS")),
-			ReportSubject:   envOr("VENDOR_REPORT_SUBJECT", defaultVendorReportSubject),
-			ReportKnown:     splitList(envOr("VENDOR_REPORT_KNOWN", defaultVendorReportKnown)),
-			Mute:            splitList(os.Getenv("MUTE_SENDERS")),
-			StreakSubjects:  splitList(envOr("STREAK_SUBJECTS", defaultStreakSubjects)),
-			AssignSenders:   splitList(envOr("ASSIGN_SENDERS", "atlassian.net")),
-			AssignSubjects:  splitList(envOr("ASSIGN_SUBJECTS", "size atadı,assigned you,assigned to you")),
+			VIP:              splitList(os.Getenv("VIP_SENDERS")),
+			Ignore:           splitList(os.Getenv("IGNORE_SENDERS")),
+			Keywords:         splitList(envOr("URGENT_KEYWORDS", defaultKeywords)),
+			AddressedUrgent:  splitList(os.Getenv("ADDRESSED_URGENT_SENDERS")),
+			ReportSubject:    envOr("VENDOR_REPORT_SUBJECT", defaultVendorReportSubject),
+			ReportKnown:      splitList(envOr("VENDOR_REPORT_KNOWN", defaultVendorReportKnown)),
+			Mute:             splitList(os.Getenv("MUTE_SENDERS")),
+			StreakSubjects:   splitList(envOr("STREAK_SUBJECTS", defaultStreakSubjects)),
+			AssignSenders:    splitList(envOr("ASSIGN_SENDERS", "atlassian.net")),
+			AssignSubjects:   splitList(envOr("ASSIGN_SUBJECTS", "size atadı,assigned you,assigned to you")),
+			PromoteUrgent:    splitList(envOr("PROMOTE_URGENT", defaultPromoteUrgent)),
+			PromoteImportant: splitList(envOr("PROMOTE_IMPORTANT", defaultPromoteImportant)),
 		},
 	}
 	var missing []string
@@ -149,7 +151,11 @@ func main() {
 	healthcheck := flag.Bool("healthcheck", false, "calisan servisin /health ucunu yokla ve cik")
 	eval := flag.Int("eval", 0, "son N maili degerlendir ve yazdir (degisiklik yapmaz)")
 	reportCheck := flag.Int("report-check", 0, "son N vendor hata raporunu kuralla degerlendir (degisiklik yapmaz)")
+	ignoreSurvey := flag.Int("ignore-survey", 0, "son N gunde yok sayilan gondericilerden gelenleri grupla (degisiklik yapmaz)")
 	flag.Parse()
+	if *ignoreSurvey > 0 {
+		os.Exit(runIgnoreSurvey(*ignoreSurvey))
+	}
 	if *reportCheck > 0 {
 		os.Exit(runReportCheck(*reportCheck))
 	}
