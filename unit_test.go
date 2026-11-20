@@ -208,3 +208,91 @@ func TestReceivedLine(t *testing.T) {
 		}
 	}
 }
+
+func TestVendorReport(t *testing.T) {
+	r := rules{ReportSubject: defaultVendorReportSubject, ReportKnown: splitList(defaultVendorReportKnown),
+		Ignore: splitList("clmail.commercelab.com.tr")}
+	mk := func(body string) message {
+		m := message{Subject: "Vendor Hata Raporu"}
+		m.From.EmailAddress.Address = "info.a101@clmail.commercelab.com.tr"
+		m.Body.Content = body
+		return m
+	}
+	clean := "Merhaba,\r\n\r\nVendor Hata Raporu\r\n________________________________\r\nUsername\tErrorMessage\tHataAdedi\r\n" +
+		"gencpa\tÜrün Tipi hatali / Ürün bulunamadi\t2267\r\n" +
+		"a101sapapiuser\tYeni ürünün Type, Barcode, Sku, OptionCode, Model bilgileri bos olamaz\t54\r\n" +
+		"A101872OwSCt\tBu kategori ürün aktarımına uygun değil Operatör gerekli map'lemeri yapmalı. ({tdyCategoryId} {catname})\t5\r\n" +
+		"A101813wIsVD\tmissing attributes: Web Color\t1\r\nA101994UEzZV\tprice not found\t1\r\n\r\nSaygılarımızla,\r\n"
+	if d := decide(mk(clean), me, r, verdict{}, nil); d.Level != levelNone || !d.MarkRead {
+		t.Errorf("yalniz veri hatalari: %+v", d)
+	}
+	sys := clean + "a101SimyaEnt\tTransaction count after EXECUTE indicates a mismatching number of BEGIN and COMMIT statements.\t201\r\n" +
+		"A101980adWfi\tTransaction count after EXECUTE indicates a mismatching number of BEGIN and COMMIT statements.\t2\r\n" +
+		"seyma.bal\tTimeout exceeded when trying to acquire the lock\t6798\r\n"
+	d := decide(mk(sys), me, r, verdict{}, nil)
+	if d.Level != levelUrgent || d.MarkRead || !strings.Contains(d.Reason, "(203)") || !strings.Contains(d.Reason, "lock (6798)") {
+		t.Errorf("sistemsel: %+v", d)
+	}
+	spaced := "Username        ErrorMessage    HataAdedi\ngencpa  Ürün Tipi hatali / Ürün bulunamadi      2267\nX  Deadlock found      3\n"
+	if d := decide(mk(spaced), me, r, verdict{}, nil); d.Level != levelUrgent {
+		t.Errorf("bosluklu bicim: %+v", d)
+	}
+	if d := decide(mk("Merhaba, rapor ektedir."), me, r, verdict{}, nil); d.Level != levelImportant {
+		t.Errorf("okunamayan: %+v", d)
+	}
+}
+
+func TestMuteAndAssignment(t *testing.T) {
+	r := rules{Mute: splitList("pullrequests-reply@bitbucket.org"), AssignSenders: splitList("atlassian.net"),
+		AssignSubjects: splitList("size atadı,assigned you")}
+	m := message{Subject: "Re: [Bitbucket] Çekme isteği #5576"}
+	m.From.EmailAddress.Address = "pullrequests-reply@bitbucket.org"
+	if d := decide(m, me, r, verdict{Level: levelImportant}, nil); d.Level != levelNone || d.MarkRead {
+		t.Errorf("sessiz: %+v", d)
+	}
+	j := message{Subject: "[JIRA] Tahir Polat Özdemir, OLK-4090 biletini size atadı"}
+	j.From.EmailAddress.Address = "jira@hebiar.atlassian.net"
+	if d := decide(j, me, r, verdict{}, nil); d.Level != levelImportant {
+		t.Errorf("atama: %+v", d)
+	}
+	j.Subject = "[JIRA] (OLK-4090) İç Taban Teknolojisi"
+	if r.isAssignment(j) {
+		t.Error("guncelleme atama sayilmamali")
+	}
+}
+
+func TestStreak(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Istanbul")
+	s := newStreaks(10*time.Minute, 5*time.Minute, loc)
+	base := time.Date(2026, 11, 20, 6, 0, 0, 0, time.UTC)
+	mk := func(min int) message {
+		m := message{Subject: "InventoryStockJobErrorAlert", ReceivedDateTime: base.Add(time.Duration(min) * time.Minute)}
+		m.Body.Content = "\r\nSyncDeltaAsync (GetDeltaStock) Hata Oluştu! Hata: Error: ERP'den Yanıt alınamadı!"
+		return m
+	}
+	klaud, brr := "info.klaud@clmail.commercelab.com.tr", "info.brr@clmail.commercelab.com.tr"
+	var urgent []int
+	for _, min := range []int{0, 2, 4, 7, 9, 11, 12, 14} {
+		if d := s.observe(mk(min), klaud); d.Level == levelUrgent {
+			urgent = append(urgent, min)
+			if !strings.Contains(d.Reason, "klaud: hata 11 dakikadır") || !strings.Contains(d.Reason, "09:00") || !strings.Contains(d.Reason, "ERP'den") {
+				t.Errorf("gerekce: %s", d.Reason)
+			}
+		}
+	}
+	if len(urgent) != 1 || urgent[0] != 11 {
+		t.Errorf("tek bildirim 11. dakikada olmali: %v", urgent)
+	}
+	// baska tenant ayri sayilir; 6 dk bosluk kesintiyi bitirir
+	for _, min := range []int{0, 3, 9, 12, 15} {
+		if d := s.observe(mk(min), brr); d.Level == levelUrgent {
+			t.Errorf("brr %d. dakikada bildirmemeli (9'da yeni kesinti basladi)", min)
+		}
+	}
+	if d := s.observe(mk(19), brr); d.Level != levelUrgent {
+		t.Errorf("brr 9-19 kesintisi bildirilmeli: %+v", d)
+	}
+	if tenantOf("e-ticaretbildirimi@clmail.skechers.com.tr") != "skechers" {
+		t.Error("tenantOf skechers")
+	}
+}

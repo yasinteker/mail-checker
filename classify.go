@@ -48,6 +48,29 @@ type rules struct {
 	// AddressedUrgent: bu gondericilerden gelen mail kullaniciya hitap ediyorsa (Kime alaninda ya da
 	// metin kullanicinin adiyla basliyorsa) yapay zekadan bagimsiz olarak her zaman "acil".
 	AddressedUrgent []string
+	// ReportSubject/ReportKnown: vendor hata raporu kurali (report.go).
+	ReportSubject string
+	ReportKnown   []string
+	// Mute: bildirim yok, yapay zekaya sorulmaz, okundu da isaretlenmez.
+	Mute []string
+	// StreakSubjects: konu bunlardan birini iceriyorsa sureklilik kurali uygulanir (streak.go).
+	StreakSubjects []string
+	// AssignSenders/AssignSubjects: is takip sisteminden "size atandi" mailleri her zaman "onemli".
+	AssignSenders  []string
+	AssignSubjects []string
+}
+
+func (r rules) isAssignment(m message) bool {
+	if !matchAddr(m.From.EmailAddress.Address, r.AssignSenders) {
+		return false
+	}
+	s := lowerTR(m.Subject)
+	for _, k := range r.AssignSubjects {
+		if strings.Contains(s, lowerTR(k)) {
+			return true
+		}
+	}
+	return false
 }
 
 func splitList(s string) []string {
@@ -300,8 +323,17 @@ type decision struct {
 // decide combines rules with the model's verdict. aiErr != nil means the model could not be used.
 func decide(m message, me identity, r rules, v verdict, aiErr error) decision {
 	from := m.From.EmailAddress.Address
+	if r.isVendorReport(m) {
+		return r.vendorReportDecision(m)
+	}
+	if matchAddr(from, r.Mute) {
+		return decision{Level: levelNone, Source: "kural:sessiz"}
+	}
 	if matchAddr(from, r.Ignore) {
 		return decision{Level: levelNone, MarkRead: true, Source: "kural:yoksay"}
+	}
+	if r.isAssignment(m) {
+		return decision{Level: levelImportant, Source: "kural:atama", Reason: "Jira'da size bilet atandı."}
 	}
 	if matchAddr(from, r.AddressedUrgent) && addressedToMe(m, me) {
 		reason := v.Reason

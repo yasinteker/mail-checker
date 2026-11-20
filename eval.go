@@ -30,7 +30,8 @@ func runEval(n int) int {
 		return 1
 	}
 	cfg := rules{VIP: splitList(os.Getenv("VIP_SENDERS")), Ignore: splitList(os.Getenv("IGNORE_SENDERS")),
-		Keywords: splitList(envOr("URGENT_KEYWORDS", defaultKeywords)), AddressedUrgent: splitList(os.Getenv("ADDRESSED_URGENT_SENDERS"))}
+		Keywords: splitList(envOr("URGENT_KEYWORDS", defaultKeywords)), AddressedUrgent: splitList(os.Getenv("ADDRESSED_URGENT_SENDERS")),
+		ReportSubject: envOr("VENDOR_REPORT_SUBJECT", defaultVendorReportSubject), ReportKnown: splitList(envOr("VENDOR_REPORT_KNOWN", defaultVendorReportKnown))}
 	ai := newClassifier(firstNonEmpty(os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("CLAUDE_API")), envOr("CLAUDE_MODEL", "claude-haiku-5-5"), me)
 	for _, m := range r.Value {
 		start := time.Now()

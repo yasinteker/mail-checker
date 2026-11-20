@@ -45,6 +45,8 @@ type config struct {
 	BootstrapRT  string
 	DigestHour   int
 	Location     *time.Location
+	StreakMin    time.Duration
+	StreakGap    time.Duration
 }
 
 func loadConfig() (config, error) {
@@ -65,6 +67,12 @@ func loadConfig() (config, error) {
 			Ignore:          splitList(os.Getenv("IGNORE_SENDERS")),
 			Keywords:        splitList(envOr("URGENT_KEYWORDS", defaultKeywords)),
 			AddressedUrgent: splitList(os.Getenv("ADDRESSED_URGENT_SENDERS")),
+			ReportSubject:   envOr("VENDOR_REPORT_SUBJECT", defaultVendorReportSubject),
+			ReportKnown:     splitList(envOr("VENDOR_REPORT_KNOWN", defaultVendorReportKnown)),
+			Mute:            splitList(os.Getenv("MUTE_SENDERS")),
+			StreakSubjects:  splitList(envOr("STREAK_SUBJECTS", defaultStreakSubjects)),
+			AssignSenders:   splitList(envOr("ASSIGN_SENDERS", "atlassian.net")),
+			AssignSubjects:  splitList(envOr("ASSIGN_SUBJECTS", "size atadı,assigned you,assigned to you")),
 		},
 	}
 	var missing []string
@@ -86,6 +94,12 @@ func loadConfig() (config, error) {
 	}
 	if c.Location, err = time.LoadLocation(envOr("TZ_NAME", "Europe/Istanbul")); err != nil {
 		return c, err
+	}
+	if c.StreakMin, err = time.ParseDuration(envOr("STREAK_MIN", "10m")); err != nil {
+		return c, fmt.Errorf("STREAK_MIN: %w", err)
+	}
+	if c.StreakGap, err = time.ParseDuration(envOr("STREAK_GAP", "5m")); err != nil {
+		return c, fmt.Errorf("STREAK_GAP: %w", err)
 	}
 	if _, err := fmt.Sscanf(envOr("DIGEST_HOUR", "18"), "%d", &c.DigestHour); err != nil || c.DigestHour < -1 || c.DigestHour > 23 {
 		return c, errors.New("DIGEST_HOUR 0-23 ya da -1 (kapali) olmali")
@@ -118,6 +132,7 @@ type app struct {
 	notify  notifier
 	lastOK  atomic.Int64 // unix saniye, son basarili tarama
 	waiting atomic.Bool  // kullanicinin girisi bekleniyor (saglik ucu "ok" doner)
+	streaks *streaks
 
 	canMarkRead   bool
 	excluded      map[string]bool      // izlenmeyen klasor kimlikleri
@@ -129,7 +144,11 @@ type app struct {
 func main() {
 	healthcheck := flag.Bool("healthcheck", false, "calisan servisin /health ucunu yokla ve cik")
 	eval := flag.Int("eval", 0, "son N maili degerlendir ve yazdir (degisiklik yapmaz)")
+	reportCheck := flag.Int("report-check", 0, "son N vendor hata raporunu kuralla degerlendir (degisiklik yapmaz)")
 	flag.Parse()
+	if *reportCheck > 0 {
+		os.Exit(runReportCheck(*reportCheck))
+	}
 	if *eval > 0 {
 		os.Exit(runEval(*eval))
 	}
@@ -151,7 +170,8 @@ func main() {
 		slog.Error("veritabani", "err", err)
 		os.Exit(1)
 	}
-	a := &app{cfg: cfg, st: st, notify: notifier{url: cfg.NotifyURL, key: cfg.NotifyKey, dry: cfg.DryRun}}
+	a := &app{cfg: cfg, st: st, notify: notifier{url: cfg.NotifyURL, key: cfg.NotifyKey, dry: cfg.DryRun},
+		streaks: newStreaks(cfg.StreakMin, cfg.StreakGap, cfg.Location)}
 	a.g = newGraph(cfg.TenantID, cfg.ClientID, graphScope(cfg.MarkRead), st)
 
 	// Saglik ucu girisi beklerken de yanit vermeli; yoksa Swarm konteyneri yeniden baslatir.
@@ -169,7 +189,8 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("basladi", "version", version, "interval", cfg.Interval.String(), "model", cfg.Model,
-		"mark_read", cfg.MarkRead, "dry_run", cfg.DryRun, "vip", len(cfg.Rules.VIP), "ignore", len(cfg.Rules.Ignore), "addressed_urgent", len(cfg.Rules.AddressedUrgent))
+		"mark_read", cfg.MarkRead, "dry_run", cfg.DryRun, "vip", len(cfg.Rules.VIP), "ignore", len(cfg.Rules.Ignore), "addressed_urgent", len(cfg.Rules.AddressedUrgent),
+		"mute", len(cfg.Rules.Mute), "streak", cfg.Rules.StreakSubjects, "streak_min", cfg.StreakMin.String())
 
 	a.run(ctx)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -362,13 +383,20 @@ func (a *app) handle(ctx context.Context, m message) error {
 	if from == a.me.Email || m.IsRead { // kendi maillerim ya da zaten okunmuslar degerlendirilmez
 		return a.st.recordProcessed(ctx, record{ID: m.ID, Received: m.ReceivedDateTime, Level: levelNone, Source: "atlandi"})
 	}
-	var v verdict
+	var d decision
 	var aiErr error
-	if !matchAddr(from, a.cfg.Rules.Ignore) { // yoksayilan gondericiler icin yapay zekaya sorulmaz
-		v, aiErr = a.ai.classify(ctx, m, ruleHints(m, a.cfg.Rules))
-		a.trackAI(ctx, aiErr)
+	r := a.cfg.Rules
+	if r.isStreakAlert(m) {
+		d = a.streaks.observe(m, from)
+	} else {
+		var v verdict
+		// yoksayilan/sessize alinan gondericiler ve kuralla cozulen vendor raporlari icin yapay zekaya sorulmaz
+		if !matchAddr(from, r.Ignore) && !matchAddr(from, r.Mute) && !r.isVendorReport(m) && !r.isAssignment(m) {
+			v, aiErr = a.ai.classify(ctx, m, ruleHints(m, r))
+			a.trackAI(ctx, aiErr)
+		}
+		d = decide(m, a.me, r, v, aiErr)
 	}
-	d := decide(m, a.me, a.cfg.Rules, v, aiErr)
 
 	notified := false
 	key := repeatKey(from, m.Subject)
